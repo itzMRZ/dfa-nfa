@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { GoogleGenAI, Type } from "@google/genai";
+import { Analytics } from "@vercel/analytics/react";
 
 // --- Types ---
 
@@ -1068,6 +1069,7 @@ export default function App() {
           Built for LLM-Native Workflows • 2026
         </p>
       </footer>
+      <Analytics />
     </div>
   );
 }

@@ -1,0 +1,5 @@
+{
+  "name": "LLM-Friendly DFA/NFA Generator",
+  "description": "A visual DFA/NFA generator using a simple, LLM-friendly text format for easy instruction and generation.",
+  "requestFramePermissions": []
+}

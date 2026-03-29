@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { GoogleGenAI, Type } from "@google/genai";
+import { Analytics } from "@vercel/analytics/react";
 
 // --- Types ---
 
@@ -596,6 +597,7 @@ export default function App() {
     simulation.on("tick", () => {
       resolveNodeCollisions(graphData.nodes);
       const nodeById = new Map<string, Node>(graphData.nodes.map(n => [n.id, n]));
+      const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
       const placedLabelPoints: Array<{ x: number; y: number }> = [];
       const edgeGeometry = new Map<Edge, { path: string; labelX: number; labelY: number }>();
 
@@ -1025,6 +1027,13 @@ export default function App() {
                             {copiedPrompt ? "Copied Prompt" : "Copy Full Prompt"}
                           </button>
                         </div>
+                        <span>
+                          Ask any LLM to return only this notation. Example prompt:{" "}
+                          <code className="bg-zinc-800 px-1 rounded">
+                            Return only DFA lines as ID - TYPE - TRANS. No explanation.
+                          </code>{" "}
+                          Then paste the response in the editor and click <span className="text-zinc-300">Format</span>.
+                        </span>
                       </li>
                     </ul>
                   </div>
@@ -1180,6 +1189,7 @@ export default function App() {
           Built for LLM-Native Workflows • 2026
         </p>
       </footer>
+      <Analytics />
     </div>
   );
 }

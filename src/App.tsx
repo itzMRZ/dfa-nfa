@@ -67,34 +67,49 @@ q2 - accept - 0(q1) 1(q0)`,
 q1 - normal - 0(q0) 1(q1)`
 };
 
-const LLM_INSTRUCTIONS = `You are a world-class Automata Theory expert. Your task is to generate DFA/NFA notation in a strict, standardized format.
+const LLM_INSTRUCTIONS = `You are an Automata Theory assistant.
+Convert the user's request into ONLY machine notation lines.
 
-FORMAT:
-[node_id] - [type] - [transitions]
+USER REQUEST:
+<paste language description here>
 
-TYPES:
-- start: The entry point.
-- accept: A final state.
-- start,accept: Both entry and final.
-- trap: A dead state (all inputs loop back).
-- normal: Any other state.
+TARGET MACHINE:
+- If user says DFA => build a DFA.
+- If user says NFA => build an NFA.
+- If unspecified => prefer DFA.
 
-TRANSITION FORMAT:
-- input(target_id)
-- Multiple inputs to same target: 0,1(q1)
-- Separate transitions with spaces: 0(q0) 1(q1)
+OUTPUT FORMAT (STRICT):
+[state_id] - [type] - [transitions]
 
-STRICT RULES:
-1. Output ONLY the notation lines.
-2. No markdown code blocks (no \`\`\`).
-3. No explanations or preamble.
-4. Ensure the machine is logically correct.
-5. For DFAs, ensure every state has a transition for every alphabet symbol.
-6. If the alphabet is not specified, assume {0, 1}.
+VALID TYPES:
+- start
+- accept
+- start,accept
+- trap
+- normal
 
-EXAMPLE OUTPUT:
-q0 - start - 0(q0) 1(q1)
-q1 - accept - 0,1(q1)`;
+TRANSITIONS (STRICT):
+- token(target)
+- multiple tokens to one target: 0,1(q2)
+- separate transitions with spaces: 0(q0) 1(q1)
+
+HARD CONSTRAINTS:
+1) Output notation lines only.
+2) No markdown, no bullets, no comments, no explanations.
+3) One state per line.
+4) Use consistent state ids (q0, q1, q2...).
+5) If DFA: every state must have exactly one transition per symbol.
+6) If alphabet missing, assume {0,1}.
+7) Include exactly one start state.
+8) Every referenced target state must be defined.
+9) Keep transitions deterministic unless user asks for NFA.
+10) Ensure accept states match the described language.
+
+SELF-CHECK BEFORE FINAL OUTPUT:
+- Parse every line as [id] - [type] - [transitions]
+- Verify no dangling states
+- Verify DFA completeness (when DFA)
+- Return final lines only`;
 
 // --- Helper Components ---
 
@@ -402,6 +417,65 @@ export default function App() {
       .attr("d", "M 0,-4 L 10,0 L 0,4")
       .attr("fill", "#71717a");
 
+    const NODE_RADIUS = 30;
+    const NODE_PADDING = 24;
+    const MIN_NODE_DISTANCE = NODE_RADIUS * 2 + NODE_PADDING;
+    const SAFE_DR = 0.001;
+
+    const clampToViewport = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+    const resolveNodeCollisions = (nodes: Node[]) => {
+      // Multi-pass collision resolver. Ensures nodes are always separated by MIN_NODE_DISTANCE.
+      // This runs on every tick as a safety net on top of d3.forceCollide.
+      for (let pass = 0; pass < 4; pass++) {
+        for (let i = 0; i < nodes.length; i++) {
+          const a = nodes[i];
+          if (a.x == null || a.y == null) continue;
+
+          for (let j = i + 1; j < nodes.length; j++) {
+            const b = nodes[j];
+            if (b.x == null || b.y == null) continue;
+
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let distance = Math.hypot(dx, dy);
+
+            // If two nodes are exactly on top of each other, give them a deterministic nudge.
+            if (distance < SAFE_DR) {
+              const angle = ((i + 1) * 1.618 + (j + 1) * 0.732) % (Math.PI * 2);
+              dx = Math.cos(angle) * SAFE_DR;
+              dy = Math.sin(angle) * SAFE_DR;
+              distance = SAFE_DR;
+            }
+
+            if (distance < MIN_NODE_DISTANCE) {
+              const overlap = MIN_NODE_DISTANCE - distance;
+              const ux = dx / distance;
+              const uy = dy / distance;
+              const shift = overlap / 2;
+
+              // Move each node half the overlap unless it's currently dragged (fx/fy locked).
+              if (a.fx == null && a.fy == null) {
+                a.x -= ux * shift;
+                a.y -= uy * shift;
+              }
+              if (b.fx == null && b.fy == null) {
+                b.x += ux * shift;
+                b.y += uy * shift;
+              }
+            }
+          }
+        }
+
+        // Keep all nodes within a safe viewport so they do not get pushed outside canvas.
+        for (const n of nodes) {
+          if (n.x == null || n.y == null) continue;
+          n.x = clampToViewport(n.x, NODE_RADIUS + 8, width - NODE_RADIUS - 8);
+          n.y = clampToViewport(n.y, NODE_RADIUS + 8, height - NODE_RADIUS - 8);
+        }
+      }
+    };
+
     const simulation = d3.forceSimulation<Node>(graphData.nodes)
       .force("link", d3.forceLink<Node, Edge>(graphData.links).id(d => d.id).distance(280))
       .force("charge", d3.forceManyBody().strength(-2500).distanceMax(1000))
@@ -416,7 +490,7 @@ export default function App() {
         if (d.isTrap) return height * 0.85;
         return height * 0.5;
       }).strength(0.2))
-      .force("collision", d3.forceCollide().radius(140).iterations(5));
+      .force("collision", d3.forceCollide<Node>().radius(NODE_RADIUS + NODE_PADDING).iterations(8));
 
     // Link groups
     const link = g.append("g")
@@ -520,83 +594,95 @@ export default function App() {
       .text("Start");
 
     simulation.on("tick", () => {
-      link.attr("d", (d: Edge) => {
-        const source = d.source as Node;
-        const target = d.target as Node;
-        const radius = 28 + 2.5; 
-        
+      resolveNodeCollisions(graphData.nodes);
+      const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+      const placedLabelPoints: Array<{ x: number; y: number }> = [];
+      const edgeGeometry = new Map<Edge, { path: string; labelX: number; labelY: number }>();
+
+      for (const edge of graphData.links) {
+        const source = edge.source as Node;
+        const target = edge.target as Node;
+        const radius = 28 + 2.5;
+
         if (source.id === target.id) {
           const x = source.x!, y = source.y!;
           const r = 35;
           const startAngle = -120 * (Math.PI / 180);
           const endAngle = -60 * (Math.PI / 180);
-          
           const x1 = x + radius * Math.cos(startAngle);
           const y1 = y + radius * Math.sin(startAngle);
           const x2 = x + radius * Math.cos(endAngle);
           const y2 = y + radius * Math.sin(endAngle);
-          
-          return `M ${x1},${y1} A ${r},${r} 0 1,1 ${x2},${y2}`;
+          edgeGeometry.set(edge, {
+            path: `M ${x1},${y1} A ${r},${r} 0 1,1 ${x2},${y2}`,
+            labelX: source.x!,
+            labelY: source.y! - 85,
+          });
+          placedLabelPoints.push({ x: source.x!, y: source.y! - 85 });
+          continue;
         }
 
         const dx = target.x! - source.x!;
         const dy = target.y! - source.y!;
-        const dr = Math.sqrt(dx * dx + dy * dy);
-        
-        // Check if there is a reverse link
-        const hasReverse = graphData.links.some(l => 
+        const dr = Math.max(Math.sqrt(dx * dx + dy * dy), SAFE_DR);
+
+        const hasReverse = graphData.links.some(l =>
           (l.source as Node).id === target.id && (l.target as Node).id === source.id
         );
+        const reverseSign = hasReverse ? ((source.id < target.id) ? 1 : -1) : 1;
 
-        // Calculate curvature - always add a slight curve to reduce overlap and collision
-        // If there's a reverse link, use a stronger curve
-        const curve = hasReverse ? 1.2 : 4.5; 
-        const sweep = 1;
-        
-        // Control point for the quadratic bezier
-        const midX = (source.x! + target.x!) / 2;
-        const midY = (source.y! + target.y!) / 2;
-        const qx = midX + (dy / dr) * (dr / curve);
-        const qy = midY - (dx / dr) * (dr / curve);
+        let curve = hasReverse ? 1.25 : 4.5;
+        let labelDistance = 15;
+        let qx = 0, qy = 0, labelX = 0, labelY = 0;
 
-        // Find intersection with target node boundary for the arrow tip
-        // For a curve, we approximate the angle at the target
+        // Multi-step collision handling for edge geometry + notation (edge labels):
+        // 1) avoid nodes, 2) avoid other labels, 3) increase curvature dynamically.
+        for (let pass = 0; pass < 6; pass++) {
+          const midX = (source.x! + target.x!) / 2;
+          const midY = (source.y! + target.y!) / 2;
+          qx = midX + (dy / dr) * (dr / curve) * reverseSign;
+          qy = midY - (dx / dr) * (dr / curve) * reverseSign;
+
+          labelX = qx + (dy / dr) * labelDistance * reverseSign;
+          labelY = qy + (-dx / dr) * labelDistance * reverseSign;
+
+          const labelHitsNode = graphData.nodes.some(n => {
+            if (n.id === source.id || n.id === target.id || n.x == null || n.y == null) return false;
+            return Math.hypot(labelX - n.x, labelY - n.y) < NODE_RADIUS + 16;
+          });
+
+          const labelHitsLabel = placedLabelPoints.some(p =>
+            Math.hypot(labelX - p.x, labelY - p.y) < 26
+          );
+
+          // Detect if control point is too close to unrelated nodes (edge vs node collision).
+          const controlHitsNode = Array.from(nodeById.values()).some(n => {
+            if (n.id === source.id || n.id === target.id || n.x == null || n.y == null) return false;
+            return Math.hypot(qx - n.x, qy - n.y) < NODE_RADIUS + 10;
+          });
+
+          if (!labelHitsNode && !labelHitsLabel && !controlHitsNode) break;
+          curve = Math.max(0.85, curve - 0.35);
+          labelDistance += 6;
+        }
+
         const angle = Math.atan2(target.y! - qy, target.x! - qx);
         const tx = target.x! - Math.cos(angle) * radius;
         const ty = target.y! - Math.sin(angle) * radius;
 
-        return `M${source.x},${source.y} Q${qx},${qy} ${tx},${ty}`;
-      });
+        edgeGeometry.set(edge, {
+          path: `M${source.x},${source.y} Q${qx},${qy} ${tx},${ty}`,
+          labelX,
+          labelY,
+        });
+        placedLabelPoints.push({ x: labelX, y: labelY });
+      }
+
+      link.attr("d", (d: Edge) => edgeGeometry.get(d)?.path ?? "");
 
       linkLabel.attr("transform", (d: Edge) => {
-        const source = d.source as Node;
-        const target = d.target as Node;
-        
-        if (source.id === target.id) {
-          return `translate(${source.x}, ${source.y! - 85})`;
-        }
-
-        const dx = target.x! - source.x!;
-        const dy = target.y! - source.y!;
-        const dr = Math.sqrt(dx * dx + dy * dy);
-        
-        const hasReverse = graphData.links.some(l => 
-          (l.source as Node).id === target.id && (l.target as Node).id === source.id
-        );
-
-        const curve = hasReverse ? 1.2 : 4.5;
-        const midX = (source.x! + target.x!) / 2;
-        const midY = (source.y! + target.y!) / 2;
-        
-        // Position label at the control point of the curve
-        const qx = midX + (dy / dr) * (dr / curve);
-        const qy = midY - (dx / dr) * (dr / curve);
-        
-        // Offset label slightly from the curve
-        const labelOffsetX = (dy / dr) * 15;
-        const labelOffsetY = (-dx / dr) * 15;
-        
-        return `translate(${qx + labelOffsetX}, ${qy + labelOffsetY})`;
+        const geom = edgeGeometry.get(d);
+        return `translate(${geom?.labelX ?? 0}, ${geom?.labelY ?? 0})`;
       });
 
       node.attr("transform", (d: Node) => `translate(${d.x}, ${d.y})`);
@@ -913,6 +999,27 @@ export default function App() {
                       <li className="flex gap-2">
                         <span className="text-purple-400 font-bold shrink-0">TRANS:</span>
                         <span>Use <code className="bg-zinc-800 px-1 rounded">input(target)</code>. Group inputs with commas: <code className="bg-zinc-800 px-1 rounded">0,1(q1)</code>.</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="text-cyan-400 font-bold shrink-0">LLM:</span>
+                        <div className="flex-1 space-y-2">
+                          <p>
+                            Use this robust prompt with ChatGPT/Claude/Gemini, then paste the model output here and click <span className="text-zinc-300">Format</span>.
+                          </p>
+                          <div className="p-2 bg-zinc-950/60 border border-zinc-800 rounded font-mono text-[10px] leading-relaxed text-zinc-300 break-words">
+                            You are an Automata Theory assistant. Convert the user's request into ONLY lines using:
+                            <span className="text-cyan-300"> state_id - type - transitions</span>.
+                            Use types: start, accept, start,accept, trap, normal.
+                            For DFA, include exactly one transition per symbol from each state. If alphabet is missing, assume {"{0,1}"}. No markdown. No explanation.
+                          </div>
+                          <button
+                            onClick={copyInstructions}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[10px] font-bold uppercase tracking-wider text-zinc-300 transition-colors"
+                          >
+                            <Copy className={`w-3.5 h-3.5 ${copiedPrompt ? "text-green-500" : ""}`} />
+                            {copiedPrompt ? "Copied Prompt" : "Copy Full Prompt"}
+                          </button>
+                        </div>
                       </li>
                     </ul>
                   </div>

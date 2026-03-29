@@ -68,34 +68,49 @@ q2 - accept - 0(q1) 1(q0)`,
 q1 - normal - 0(q0) 1(q1)`
 };
 
-const LLM_INSTRUCTIONS = `You are a world-class Automata Theory expert. Your task is to generate DFA/NFA notation in a strict, standardized format.
+const LLM_INSTRUCTIONS = `You are an Automata Theory assistant.
+Convert the user's request into ONLY machine notation lines.
 
-FORMAT:
-[node_id] - [type] - [transitions]
+USER REQUEST:
+<paste language description here>
 
-TYPES:
-- start: The entry point.
-- accept: A final state.
-- start,accept: Both entry and final.
-- trap: A dead state (all inputs loop back).
-- normal: Any other state.
+TARGET MACHINE:
+- If user says DFA => build a DFA.
+- If user says NFA => build an NFA.
+- If unspecified => prefer DFA.
 
-TRANSITION FORMAT:
-- input(target_id)
-- Multiple inputs to same target: 0,1(q1)
-- Separate transitions with spaces: 0(q0) 1(q1)
+OUTPUT FORMAT (STRICT):
+[state_id] - [type] - [transitions]
 
-STRICT RULES:
-1. Output ONLY the notation lines.
-2. No markdown code blocks (no \`\`\`).
-3. No explanations or preamble.
-4. Ensure the machine is logically correct.
-5. For DFAs, ensure every state has a transition for every alphabet symbol.
-6. If the alphabet is not specified, assume {0, 1}.
+VALID TYPES:
+- start
+- accept
+- start,accept
+- trap
+- normal
 
-EXAMPLE OUTPUT:
-q0 - start - 0(q0) 1(q1)
-q1 - accept - 0,1(q1)`;
+TRANSITIONS (STRICT):
+- token(target)
+- multiple tokens to one target: 0,1(q2)
+- separate transitions with spaces: 0(q0) 1(q1)
+
+HARD CONSTRAINTS:
+1) Output notation lines only.
+2) No markdown, no bullets, no comments, no explanations.
+3) One state per line.
+4) Use consistent state ids (q0, q1, q2...).
+5) If DFA: every state must have exactly one transition per symbol.
+6) If alphabet missing, assume {0,1}.
+7) Include exactly one start state.
+8) Every referenced target state must be defined.
+9) Keep transitions deterministic unless user asks for NFA.
+10) Ensure accept states match the described language.
+
+SELF-CHECK BEFORE FINAL OUTPUT:
+- Parse every line as [id] - [type] - [transitions]
+- Verify no dangling states
+- Verify DFA completeness (when DFA)
+- Return final lines only`;
 
 // --- Helper Components ---
 

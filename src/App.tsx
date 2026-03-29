@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { GoogleGenAI, Type } from "@google/genai";
+import { Analytics } from "@vercel/analytics/react";
 
 // --- Types ---
 
@@ -1007,24 +1008,13 @@ export default function App() {
                       </li>
                       <li className="flex gap-2">
                         <span className="text-cyan-400 font-bold shrink-0">LLM:</span>
-                        <div className="flex-1 space-y-2">
-                          <p>
-                            Use this robust prompt with ChatGPT/Claude/Gemini, then paste the model output here and click <span className="text-zinc-300">Format</span>.
-                          </p>
-                          <div className="p-2 bg-zinc-950/60 border border-zinc-800 rounded font-mono text-[10px] leading-relaxed text-zinc-300 break-words">
-                            You are an Automata Theory assistant. Convert the user's request into ONLY lines using:
-                            <span className="text-cyan-300"> state_id - type - transitions</span>.
-                            Use types: start, accept, start,accept, trap, normal.
-                            For DFA, include exactly one transition per symbol from each state. If alphabet is missing, assume {"{0,1}"}. No markdown. No explanation.
-                          </div>
-                          <button
-                            onClick={copyInstructions}
-                            className="inline-flex items-center gap-1.5 px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[10px] font-bold uppercase tracking-wider text-zinc-300 transition-colors"
-                          >
-                            <Copy className={`w-3.5 h-3.5 ${copiedPrompt ? "text-green-500" : ""}`} />
-                            {copiedPrompt ? "Copied Prompt" : "Copy Full Prompt"}
-                          </button>
-                        </div>
+                        <span>
+                          Ask any LLM to return only this notation. Example prompt:{" "}
+                          <code className="bg-zinc-800 px-1 rounded">
+                            Return only DFA lines as ID - TYPE - TRANS. No explanation.
+                          </code>{" "}
+                          Then paste the response in the editor and click <span className="text-zinc-300">Format</span>.
+                        </span>
                       </li>
                     </ul>
                   </div>
@@ -1180,6 +1170,7 @@ export default function App() {
           Built for LLM-Native Workflows • 2026
         </p>
       </footer>
+      <Analytics />
     </div>
   );
 }

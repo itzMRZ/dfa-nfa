@@ -914,6 +914,16 @@ export default function App() {
                         <span className="text-purple-400 font-bold shrink-0">TRANS:</span>
                         <span>Use <code className="bg-zinc-800 px-1 rounded">input(target)</code>. Group inputs with commas: <code className="bg-zinc-800 px-1 rounded">0,1(q1)</code>.</span>
                       </li>
+                      <li className="flex gap-2">
+                        <span className="text-cyan-400 font-bold shrink-0">LLM:</span>
+                        <span>
+                          Ask any LLM to return only this notation. Example prompt:{" "}
+                          <code className="bg-zinc-800 px-1 rounded">
+                            Return only DFA lines as ID - TYPE - TRANS. No explanation.
+                          </code>{" "}
+                          Then paste the response in the editor and click <span className="text-zinc-300">Format</span>.
+                        </span>
+                      </li>
                     </ul>
                   </div>
                 </div>

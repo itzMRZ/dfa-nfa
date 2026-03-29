@@ -632,7 +632,8 @@ export default function App() {
         const reverseSign = hasReverse ? ((source.id < target.id) ? 1 : -1) : 1;
 
         let curve = hasReverse ? 1.25 : 4.5;
-        let labelDistance = 15;
+        let labelDistance = hasReverse ? 12 : 10;
+        let labelSide = reverseSign;
         let qx = 0, qy = 0, labelX = 0, labelY = 0;
 
         // Multi-step collision handling for edge geometry + notation (edge labels):
@@ -643,8 +644,10 @@ export default function App() {
           qx = midX + (dy / dr) * (dr / curve) * reverseSign;
           qy = midY - (dx / dr) * (dr / curve) * reverseSign;
 
-          labelX = qx + (dy / dr) * labelDistance * reverseSign;
-          labelY = qy + (-dx / dr) * labelDistance * reverseSign;
+          const nx = (dy / dr) * labelSide;
+          const ny = (-dx / dr) * labelSide;
+          labelX = qx + nx * labelDistance;
+          labelY = qy + ny * labelDistance;
 
           const labelHitsNode = graphData.nodes.some(n => {
             if (n.id === source.id || n.id === target.id || n.x == null || n.y == null) return false;
@@ -658,12 +661,14 @@ export default function App() {
           // Detect if control point is too close to unrelated nodes (edge vs node collision).
           const controlHitsNode = Array.from(nodeById.values()).some(n => {
             if (n.id === source.id || n.id === target.id || n.x == null || n.y == null) return false;
-            return Math.hypot(qx - n.x, qy - n.y) < NODE_RADIUS + 10;
+            return Math.hypot(qx - n.x, qy - n.y) < NODE_RADIUS + 4;
           });
 
           if (!labelHitsNode && !labelHitsLabel && !controlHitsNode) break;
-          curve = Math.max(0.85, curve - 0.35);
-          labelDistance += 6;
+          // Keep notation close to its edge: try side flip first, then bounded offset growth.
+          if (pass === 1) labelSide *= -1;
+          labelDistance = Math.min(labelDistance + 3, 22);
+          curve = Math.max(1.05, curve - 0.2);
         }
 
         const angle = Math.atan2(target.y! - qy, target.x! - qx);
